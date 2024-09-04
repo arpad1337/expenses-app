@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      * {
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      #app {
+        margin: auto;
+        display: block;
+        max-width: 800px;
+        width: 100vw;
+      }
+      .star {
+        cursor: pointer;
+      }
+      .fav {
+        color: green;
+      }
+      .hidden {
+        display: none;
+      }
+      .expense {
+        width: 100%;
+        border-bottom: 1px solid lightgray;
+      }
+      .expense .opener {
+        cursor: pointer;
+      }
+      .expense.open .opener svg {
+        transform: rotate(180deg);
+      }
+      .expense.open .hidden {
+        display: table-row;
+      }
+    </style>
+    <script>
+      class App {
+        constructor(selector) {
+          this.container = document.querySelector(selector);
+          this.categories = new Map();
+          this.favorites = JSON.parse(
+            localStorage.getItem("favorites") || "[]"
+          );
+          this.data = [];
+        }
+
+        _loadData(cb) {
+          const request = new XMLHttpRequest();
+          request.addEventListener("load", function onLoad() {
+            cb(JSON.parse(this.responseText));
+          });
+          request.open("GET", "./input.json");
+          request.send();
+        }
+
+        _addToFavorites(category) {
+          const favorites = this.favorites.concat();
+          favorites.push(category);
+          this.favorites = favorites;
+          localStorage.setItem("favorites", JSON.stringify(this.favorites));
+        }
+
+        _removeFromFavorites(category) {
+          const favorites = this.favorites.concat();
+          const favoriteIndex = favorites.findIndex((c) => c === category);
+          favorites.splice(favoriteIndex, 1);
+          this.favorites = favorites;
+          localStorage.setItem("favorites", JSON.stringify(this.favorites));
+        }
+
+        render() {
+          this.container.innerHTML = "";
+          const table = document.createElement("table");
+          const buffer = [];
+          this.categories.forEach((expenses, category) => {
+            buffer.push([category, expenses, this._calcSum(expenses)]);
+          });
+          const favorites = buffer
+            .filter(([c]) => this._isFavorite(c))
+            .sort((a, b) => {
+              return b[2] - a[2];
+            });
+          favorites
+            .concat(
+              buffer
+                .filter(([c]) => !this._isFavorite(c))
+                .sort((a, b) => {
+                  return b[2] - a[2];
+                })
+            )
+            .forEach(([category, expenses]) => {
+              table.appendChild(this._renderCategory(category, expenses));
+            });
+          this.container.appendChild(table);
+          document.querySelectorAll(".star").forEach((element) => {
+            element.addEventListener("click", (event) =>
+              this.toggleFavorite(event)
+            );
+          });
+          document.querySelectorAll(".expense").forEach((element) => {
+            element
+              .querySelector(".opener")
+              .addEventListener("click", (event) => {
+                if (!element.classList.contains("open")) {
+                  element.classList.add("open");
+                } else {
+                  element.classList.remove("open");
+                }
+              });
+          });
+        }
+
+        toggleFavorite(event) {
+          const element = event.currentTarget;
+          const category = element.getAttribute("data-category");
+          if (!this._isFavorite(category)) {
+            this._addToFavorites(category);
+          } else {
+            this._removeFromFavorites(category);
+          }
+          this.render();
+        }
+
+        _isFavorite(category) {
+          return !!this.favorites.find((c) => c === category);
+        }
+
+        _renderCategory(category, expenses) {
+          const tmpNode = document.createElement("tbody");
+          tmpNode.classList.add("expense");
+          tmpNode.innerHTML = `
+            <tr>
+                <td>
+                    <span data-category="${category}" class="star ${
+                      this._isFavorite(category) ? "fav" : ""
+                    }">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-star-fill" viewBox="0 0 16 16">
+                            <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
+                        </svg>
+                    </span>
+                </td>
+                <td>
+                    <h3>${category}</h3>
+                </td>
+                <td>
+                    ${expenses.length} expense(s)
+                </td>
+                <td>
+                    $${this._calcSum(expenses)}
+                </td>
+                <td>
+                    <span class="opener">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-up" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708z"/>
+                        </svg>
+                    </span>
+                </td>
+            <tr>
+            <tr class="hidden">
+              <td colspan="5">
+                <table>${expenses
+                  .sort((a, b) => {
+                    return b.date - a.date;
+                  })
+                  .map((expense) => {
+                    return `<tr>
+                    <td>${this._formatDate(new Date(expense.date))}</td>
+                    <td>${expense.description}</td>
+                    <td>$${Math.floor(this._convertToUsd(expense))}</td>  
+                  </tr>`;
+                  })
+                  .join("")}
+                </table>  
+              </td>
+            </tr>
+            `;
+          return tmpNode;
+        }
+
+        _formatDate(date) {
+          return `${(1 + date.getMonth()).toString().padStart(2, "0")}/${date
+            .getDay()
+            .toString()
+            .padStart(2, "0")}/${date.getFullYear()}`;
+        }
+
+        _convertToUsd(expense) {
+          if (expense.currency === "EUR") {
+            return expense.amount * 1.1;
+          }
+          if (expense.currency === "GBP") {
+            return expense.amount * 1.3;
+          }
+          return expense.amount;
+        }
+
+        _calcSum(expenses) {
+          return Math.floor(
+            expenses.reduce((accu, expense) => {
+              return accu + this._convertToUsd(expense);
+            }, 0)
+          );
+        }
+
+        _processData(data) {
+          data.forEach((expense) => {
+            const category = this.categories.get(expense.category);
+            if (!category) {
+              this.categories.set(expense.category, [expense]);
+            } else {
+              category.push(expense);
+              this.categories.set(expense.category, category);
+            }
+          });
+          this.data = data;
+        }
+
+        run() {
+          this._loadData((data) => {
+            this._processData(data);
+            this.render();
+          });
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      const app = new App("#app");
+      app.run();
+    </script>
+  </body>
+</html>
